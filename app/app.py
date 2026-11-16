@@ -24,8 +24,17 @@ def db_conninfo() -> str:
     )
 
 
+# Arbitrary constant key for the schema-init advisory lock
+SCHEMA_LOCK_KEY = 4242
+
+
 def init_db() -> None:
     with psycopg.connect(db_conninfo()) as conn:
+        # Several replicas start at once (docker compose up --scale app=N) and all run this.
+        # Concurrent CREATE TABLE IF NOT EXISTS can still fail with a unique violation in
+        # Postgres, so serialize schema init across containers. The lock is released
+        # automatically when this transaction commits.
+        conn.execute("SELECT pg_advisory_xact_lock(%s)", (SCHEMA_LOCK_KEY,))
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS visits (
@@ -40,6 +49,9 @@ def init_db() -> None:
 @app.get("/")
 def index():
     hostname = socket.gethostname()
+    # No application lock needed: each INSERT is atomic in Postgres, and the count runs in
+    # the same transaction, so it always includes this visit plus every committed one.
+    # A Python lock would not help anyway: it cannot span gunicorn workers or replicas.
     with psycopg.connect(db_conninfo()) as conn:
         conn.execute("INSERT INTO visits (hostname) VALUES (%s)", (hostname,))
         total = conn.execute("SELECT count(*) FROM visits").fetchone()[0]

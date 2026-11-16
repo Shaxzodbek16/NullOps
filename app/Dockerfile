@@ -18,5 +18,8 @@ USER appuser
 
 EXPOSE 5000
 
-# --preload runs init_db() once in the master, so two workers never race on CREATE TABLE
-CMD ["gunicorn", "--preload", "--bind", "0.0.0.0:5000", "--workers", "2", "--access-logfile", "-", "app:app"]
+# Worker count comes from WEB_CONCURRENCY (gunicorn reads it natively), set via .env -> compose.
+ENV WEB_CONCURRENCY=2
+
+# --preload runs init_db() once in the master, so workers in one container never race on CREATE TABLE
+CMD ["gunicorn", "--preload", "--bind", "0.0.0.0:5000", "--access-logfile", "-", "app:app"]

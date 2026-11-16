@@ -28,6 +28,7 @@ services:
       DB_USER: ${DB_USER}
       DB_PASS: ${DB_PASS}
       DB_NAME: ${DB_NAME}
+      WEB_CONCURRENCY: ${APP_WORKERS:-2}
     depends_on:
       db:
         condition: service_healthy

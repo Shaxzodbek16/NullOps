@@ -53,7 +53,8 @@ docker compose ps           # every service should show (healthy)
 | http://localhost/health      | `{"status": "ok", "database": "reachable"}`   |
 | http://localhost:8081/       | cAdvisor dashboard                             |
 
-Ports can be changed with `NGINX_PORT` and `CADVISOR_PORT` in `.env`.
+Ports can be changed with `NGINX_PORT` and `CADVISOR_PORT` in `.env`, and the number of
+gunicorn workers per app container with `APP_WORKERS` (default 2).
 
 Stop the stack (data is kept):
 
