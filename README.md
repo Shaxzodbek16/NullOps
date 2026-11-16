@@ -1,7 +1,7 @@
 # NullOps: Full Working App with Docker Compose
 
 A small production-like stack run with Docker Compose: a Flask web app backed by
-PostgreSQL, served through an Nginx reverse proxy and monitored with cAdvisor.
+MariaDB, served through an Nginx reverse proxy and monitored with cAdvisor.
 
 ## Architecture
 
@@ -17,13 +17,13 @@ PostgreSQL, served through an Nginx reverse proxy and monitored with cAdvisor.
           +---------+
                |  backend network
           +---------+
-          |   db    |  PostgreSQL 16, data in named volume "dbdata"
+          |   db    |  MariaDB 11.4, data in named volume "dbdata"
           +---------+
 ```
 
 | Service    | Image                              | Purpose                                   |
 |------------|------------------------------------|-------------------------------------------|
-| `db`       | `postgres:16-alpine`               | Stores visits; data persists in `dbdata`  |
+| `db`       | `mariadb:11.4`                     | Stores visits; data persists in `dbdata`  |
 | `app`      | built from `./app`                 | Flask API (`/`, `/health`)                |
 | `nginx`    | `nginx:1.27-alpine`                | Reverse proxy, the only public web entry  |
 | `cadvisor` | `gcr.io/cadvisor/cadvisor:v0.49.1` | CPU / memory / network per container      |
@@ -31,12 +31,16 @@ PostgreSQL, served through an Nginx reverse proxy and monitored with cAdvisor.
 Design choices:
 
 - **Healthchecks on every service.** Startup order uses `depends_on: condition: service_healthy`,
-  so `app` waits until Postgres accepts connections and `nginx` waits until the app is healthy.
+  so `app` waits until MariaDB accepts connections and `nginx` waits until the app is healthy.
   Plain `depends_on` only orders the start, it does not wait for readiness.
 - **Two networks.** `db` is only on `backend`, so neither Nginx nor the host can reach the database.
 - **Secrets in `.env`.** Credentials are never hard-coded; `.env` is git-ignored and
   `.env.example` documents the variables.
-- **Non-root app container** (`appuser`, uid 10001).
+- **Non-root app container** (`appuser`, uid 10001); dependencies installed with
+  [uv](https://github.com/astral-sh/uv) instead of pip for faster builds.
+- **Safe startup with replicas.** Schema creation takes a MariaDB named lock (`GET_LOCK`),
+  so several app replicas starting at once create the table one at a time.
+- **MariaDB root is not used.** It gets a random password; the app uses its own `DB_USER`.
 - **`restart: unless-stopped`** so services come back after a crash or a Docker restart.
 
 ## Quick start
@@ -49,7 +53,7 @@ docker compose ps           # every service should show (healthy)
 
 | URL                          | What you see                                   |
 |------------------------------|------------------------------------------------|
-| http://localhost/            | JSON with a visit counter stored in Postgres  |
+| http://localhost/            | JSON with a visit counter stored in MariaDB   |
 | http://localhost/health      | `{"status": "ok", "database": "reachable"}`   |
 | http://localhost:8081/       | cAdvisor dashboard                             |
 
@@ -126,7 +130,7 @@ Nginx resolves `app` once at startup, so restart it after scaling:
 .
 ├── app/
 │   ├── app.py            # Flask app
-│   ├── Dockerfile        # python:3.12-slim, non-root
+│   ├── Dockerfile        # python:3.12-slim, uv, non-root
 │   └── requirements.txt
 ├── nginx/
 │   └── nginx.conf        # reverse proxy config

@@ -1,14 +1,16 @@
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PYTHONUNBUFFERED=1
+
+# uv: fast drop-in replacement for pip (single static binary, pinned version)
+COPY --from=ghcr.io/astral-sh/uv:0.5.11 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
 # Install dependencies first so this layer is cached between code changes
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN uv pip install --system --no-cache -r requirements.txt
 
 COPY app.py .
 
