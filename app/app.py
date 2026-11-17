@@ -8,6 +8,7 @@ Endpoints:
   GET /         - records a visit and returns the total visit count
   GET /health   - liveness + database readiness check (used by Docker healthcheck)
 """
+
 import os
 import socket
 import time
@@ -16,7 +17,11 @@ import hvac
 import pymysql
 from flask import Flask, jsonify
 
+from observability import configure_logging, register_request_logging
+
+configure_logging()
 app = Flask(__name__)
+register_request_logging(app)
 
 # Name of the MariaDB named lock used to serialize schema init across containers
 SCHEMA_LOCK_NAME = "nullops_schema_init"
@@ -39,14 +44,18 @@ def fetch_db_credentials(attempts: int = 10, delay: float = 2.0) -> dict:
     short retry keeps a restarting Vault from taking the app down with it.
     """
     role_id = _read_file(os.environ.get("VAULT_ROLE_ID_FILE", "/vault/approle/role_id"))
-    secret_id = _read_file(os.environ.get("VAULT_SECRET_ID_FILE", "/vault/approle/secret_id"))
+    secret_id = _read_file(
+        os.environ.get("VAULT_SECRET_ID_FILE", "/vault/approle/secret_id")
+    )
     mount = os.environ.get("VAULT_KV_MOUNT", "nullops")
     path = os.environ.get("VAULT_DB_SECRET_PATH", "db/app")
 
     last_error = None
     for attempt in range(attempts):
         try:
-            client = hvac.Client(url=os.environ.get("VAULT_ADDR", "http://vault:8200"), timeout=5)
+            client = hvac.Client(
+                url=os.environ.get("VAULT_ADDR", "http://vault:8200"), timeout=5
+            )
             client.auth.approle.login(role_id=role_id, secret_id=secret_id)
             secret = client.secrets.kv.v2.read_secret_version(
                 path=path, mount_point=mount, raise_on_deleted_version=True
@@ -61,7 +70,9 @@ def fetch_db_credentials(attempts: int = 10, delay: float = 2.0) -> dict:
             last_error = exc
             if attempt < attempts - 1:
                 time.sleep(delay)
-    raise RuntimeError(f"could not read the database credentials from Vault: {last_error}")
+    raise RuntimeError(
+        f"could not read the database credentials from Vault: {last_error}"
+    )
 
 
 def db_credentials(refresh: bool = False) -> dict:

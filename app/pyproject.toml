@@ -9,9 +9,19 @@ dependencies = [
     "PyMySQL==1.1.1",
     # Vault client: AppRole login + KV v2 reads
     "hvac==2.3.0",
+    "structlog==25.5.0",
 ]
 
 [tool.uv]
 # app.py is copied into the image, not installed as a package, so uv only has to
 # resolve and install the dependencies above.
 package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<10",
+    "ruff>=0.17.5",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
