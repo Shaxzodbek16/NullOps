@@ -16,7 +16,7 @@ ENV UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev
 
-COPY app.py .
+COPY app.py observability.py ./
 
 # Run as an unprivileged user, never as root
 RUN useradd --create-home --uid 10001 appuser

@@ -152,6 +152,22 @@ curl -i http://localhost/          # Server: nginx, body comes from Flask
 docker compose logs app | tail     # the request appears in gunicorn's access log
 ```
 
+### Request logging and correlation
+
+The Flask app writes JSON logs to stdout, including a `request_completed` event
+with the method, path, status, duration, and request key. Send `X-Request-Key`
+to correlate a request with its logs; the response returns the same key. Keys
+must be 1–128 characters using ASCII letters, digits, `.`, `_`, or `-`. Missing
+or invalid keys are replaced with a generated UUID-based key. Query strings are
+not included in request completion logs. Gunicorn and Nginx keep their own logs.
+
+```bash
+curl -i -H 'X-Request-Key: example-123' http://localhost/health
+docker compose logs app
+```
+
+Run the request logging tests with `cd app && uv run pytest`.
+
 ### Lab 2: Healthchecks
 
 ```bash
