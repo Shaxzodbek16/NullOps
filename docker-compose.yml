@@ -1,17 +1,75 @@
 name: nullops
 
 services:
+  vault:
+    image: hashicorp/vault:1.17
+    restart: unless-stopped
+    # The image's entrypoint already appends -config=/vault/config, which is where
+    # vault.hcl is mounted; passing the file again would load the listener twice.
+    command: server
+    environment:
+      # The CLI inside the container (used by the healthcheck) talks to the local listener
+      VAULT_ADDR: http://127.0.0.1:8200
+    cap_add:
+      # Lets Vault mlock its memory so secrets are never swapped to disk
+      - IPC_LOCK
+    ports:
+      # UI / CLI access from the host; comment out to keep Vault purely internal
+      - "${VAULT_PORT:-8200}:8200"
+    volumes:
+      - ./vault/config/vault.hcl:/vault/config/vault.hcl:ro
+      - vault-data:/vault/file
+    networks:
+      # Only "backend": nginx and cadvisor cannot reach Vault
+      - backend
+    healthcheck:
+      # "vault status" exits 0 only when Vault is initialised *and* unsealed
+      test: ["CMD", "vault", "status"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  vault-bootstrap:
+    image: hashicorp/vault:1.17
+    # One-shot job: initialise/unseal Vault, seed the credentials, hand out an AppRole
+    restart: "no"
+    # Runs as root so it can write into the shared secret volumes
+    user: root
+    entrypoint: ["/bin/sh", "/vault/scripts/bootstrap.sh"]
+    environment:
+      VAULT_ADDR: http://vault:8200
+      # Names only, never passwords: the passwords are generated inside Vault's bootstrap
+      DB_USER: ${DB_USER:-nullops}
+      DB_NAME: ${DB_NAME:-nullops_db}
+    volumes:
+      - ./vault/scripts:/vault/scripts:ro
+      - ./vault/policies:/vault/policies:ro
+      - vault-init:/vault/init
+      - vault-approle:/vault/approle
+      - db-secrets:/vault/db
+    depends_on:
+      # The script polls the API itself, so it only needs the container to be started
+      vault:
+        condition: service_started
+    networks:
+      - backend
+
   db:
     image: mariadb:11.4
     restart: unless-stopped
     environment:
-      MARIADB_USER: ${DB_USER}
-      MARIADB_PASSWORD: ${DB_PASS}
-      MARIADB_DATABASE: ${DB_NAME}
-      # root is never used by the app; give it a random password printed once in the logs
-      MARIADB_RANDOM_ROOT_PASSWORD: "1"
+      # Every value comes from a file rendered by vault-bootstrap out of Vault
+      MARIADB_USER_FILE: /run/secrets/db_user
+      MARIADB_PASSWORD_FILE: /run/secrets/db_password
+      MARIADB_DATABASE_FILE: /run/secrets/db_name
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/db_root_password
     volumes:
       - dbdata:/var/lib/mysql
+      - db-secrets:/run/secrets:ro
+    depends_on:
+      vault-bootstrap:
+        condition: service_completed_successfully
     networks:
       - backend
     healthcheck:
@@ -28,13 +86,22 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: 3306
-      DB_USER: ${DB_USER}
-      DB_PASS: ${DB_PASS}
-      DB_NAME: ${DB_NAME}
+      # No DB credentials here: the app logs into Vault with its AppRole and reads them
+      VAULT_ADDR: http://vault:8200
+      VAULT_KV_MOUNT: nullops
+      VAULT_DB_SECRET_PATH: db/app
+      VAULT_ROLE_ID_FILE: /vault/approle/role_id
+      VAULT_SECRET_ID_FILE: /vault/approle/secret_id
       WEB_CONCURRENCY: ${APP_WORKERS:-2}
+    volumes:
+      - vault-approle:/vault/approle:ro
     depends_on:
       db:
         condition: service_healthy
+      vault:
+        condition: service_healthy
+      vault-bootstrap:
+        condition: service_completed_successfully
     networks:
       - backend
       - frontend
@@ -83,8 +150,16 @@ services:
 
 volumes:
   dbdata:
+  # Vault's encrypted storage; losing it means losing every secret
+  vault-data:
+  # Unseal key + root token from "vault operator init"
+  vault-init:
+  # role_id / secret_id the app uses to authenticate to Vault
+  vault-approle:
+  # DB credentials rendered out of Vault for the MariaDB entrypoint
+  db-secrets:
 
 networks:
-  # db is only on "backend", so it is never reachable from nginx or the host
+  # db and vault are only on "backend", so neither is reachable from nginx or the host
   backend:
   frontend:
