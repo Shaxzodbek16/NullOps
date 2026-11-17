@@ -47,8 +47,10 @@ Design choices:
   connections, and `nginx` waits until the app is healthy.
 - **Two networks.** `db` and `vault` are only on `backend`, so neither Nginx nor cAdvisor
   can reach them.
-- **Non-root app container** (`appuser`, uid 10001); dependencies installed with
-  [uv](https://github.com/astral-sh/uv) instead of pip for faster builds.
+- **Non-root app container** (`appuser`, uid 10001); dependencies are declared in
+  `app/pyproject.toml` and pinned in `app/uv.lock`, installed with
+  [uv](https://github.com/astral-sh/uv) (`uv sync --locked`) instead of pip, so every
+  build is fast and reproducible.
 - **Safe startup with replicas.** Schema creation takes a MariaDB named lock (`GET_LOCK`),
   so several app replicas starting at once create the table one at a time.
 - **`restart: unless-stopped`** so services come back after a crash or a Docker restart.
@@ -253,8 +255,9 @@ at startup, so restart it after scaling: `docker compose restart nginx`.
 .
 ├── app/
 │   ├── app.py            # Flask app, reads DB credentials from Vault (AppRole)
-│   ├── Dockerfile        # python:3.12-slim, uv, non-root
-│   └── requirements.txt
+│   ├── Dockerfile        # python:3.12-slim, uv sync, non-root
+│   ├── pyproject.toml    # dependencies (Flask, gunicorn, PyMySQL, hvac)
+│   └── uv.lock           # exact versions, resolved by uv
 ├── nginx/
 │   └── nginx.conf        # reverse proxy config
 ├── vault/
