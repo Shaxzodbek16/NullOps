@@ -1,0 +1,17 @@
+[project]
+name = "nullops-app"
+version = "0.1.0"
+description = "Flask service backed by MariaDB, with every credential read from Vault"
+requires-python = ">=3.12"
+dependencies = [
+    "Flask==3.0.3",
+    "gunicorn==22.0.0",
+    "PyMySQL==1.1.1",
+    # Vault client: AppRole login + KV v2 reads
+    "hvac==2.3.0",
+]
+
+[tool.uv]
+# app.py is copied into the image, not installed as a package, so uv only has to
+# resolve and install the dependencies above.
+package = false
